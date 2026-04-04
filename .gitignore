@@ -1,0 +1,19 @@
+node_modules
+.next
+.env
+.env*.local
+dist
+*.log
+.DS_Store
+
+# next-pwa / Serwist build artifacts
+public/sw.js
+public/sw.js.map
+public/swe-worker-*.js
+public/swe-worker-*.js.map
+public/workbox-*.js
+public/workbox-*.js.map
+public/fallback-*.js
+
+# clerk configuration (can include secrets)
+/.clerk/

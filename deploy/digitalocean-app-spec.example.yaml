@@ -1,0 +1,30 @@
+# DigitalOcean App Platform — example spec (replace placeholders).
+# Docs: https://docs.digitalocean.com/products/app-platform/reference/app-specification/
+#
+# After deploy: attach custom domain overwatch.isoflux.app → this app.
+
+name: overwatch-staging
+region: nyc
+
+services:
+  - name: web
+    github:
+      repo: YOUR_ORG/project-overwatch
+      branch: main
+      deploy_on_push: true
+    build_command: npm ci && npx prisma generate && npm run build
+    run_command: npx prisma migrate deploy && npm start
+    http_port: 3000
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    routes:
+      - path: /
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_SITE_URL
+        value: https://overwatch.isoflux.app
+      - key: NEXT_PUBLIC_APP_URL
+        value: https://overwatch.isoflux.app
+      # Set as ENCRYPTED in the DO UI (do not commit real values):
+      # DATABASE_URL, CLERK_*, GROQ_API_KEY, LEMONSQUEEZY_*, PROPOSAL_IP_SALT, etc.

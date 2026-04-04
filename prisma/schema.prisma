@@ -1,0 +1,160 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SovereignLead {
+  id                 String   @id @default(cuid())
+  userId             String?
+  name               String
+  type               String
+  website            String?
+  phone              String?
+  vulnerabilityScore Int
+  lat                Float
+  lng                Float
+  osmMetadata        Json
+  strategistThread   Json?
+  /// Cached Digital Fragility Report for hosted `/vault/landing/[leadId]` (set when generated in Vault).
+  sovereignBriefing  Json?
+  proposalShareToken String?  @unique
+  proposalPinSalt    String?
+  proposalPinHash    String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  proposalEvents ProposalEvent[]
+
+  @@index([userId])
+}
+
+/// Clerk-scoped entitlements (Lemon Squeezy / license unlocks). No local User model — key is Clerk `userId`.
+model UserEntitlement {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  aegisPayEnabled     Boolean @default(false)
+  overwatchProEnabled Boolean @default(false)
+
+  lemonSqueezyCustomerId String?
+  lastOrderIdentifier    String?
+  lastSubscriptionId     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_entitlements")
+}
+
+model StrategistRateBucket {
+  id        String   @id @default(cuid())
+  userId    String
+  windowKey String
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, windowKey])
+  @@index([userId])
+}
+
+model ProposalEvent {
+  id        String        @id @default(cuid())
+  leadId    String
+  lead      SovereignLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  eventType String
+  ipHash    String?
+  userAgent String?
+  createdAt DateTime      @default(now())
+
+  @@index([leadId])
+  @@index([leadId, eventType])
+  @@index([createdAt])
+}
+
+model AuraMeshAudit {
+  id             String   @id @default(cuid())
+  businessId     String
+  technicianName String?
+  payload        Json
+  latitude       Float?
+  longitude      Float?
+  accuracy       Float?
+  photoUrl       String?
+  capturedAt     DateTime
+  cryptoHash     String   @unique
+  syncedAt       DateTime @default(now())
+}
+
+/// Gumroad / P2P rail metadata (XRP, XLM, ALGO, USD). Settlement is gated by Aegis vortex stages.
+enum AegisCurrency {
+  XRP
+  XLM
+  ALGO
+  USD
+}
+
+/// Asymmetric settlement: COMMITTED (3) → VERIFIED (6) → SETTLED (9).
+enum AegisTransactionStatus {
+  COMMITTED
+  VERIFIED
+  SETTLED
+}
+
+model AegisTransaction {
+  id          String                 @id @default(cuid())
+  senderId    String
+  receiverId  String
+  amount      Decimal                @db.Decimal(20, 8)
+  currency    AegisCurrency
+  /// On-chain or canonical tx id (hex). Used with stage salts for 3-6-9 vortex gates.
+  txHash      String                 @unique
+  /// Last observed vortex root (1–9) at validation time.
+  vortexRoot  Int
+  status      AegisTransactionStatus @default(COMMITTED)
+  committedAt DateTime               @default(now())
+  verifiedAt  DateTime?
+  settledAt   DateTime?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  escrow EscrowVault?
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([status])
+}
+
+enum EscrowVaultStatus {
+  /// Funds locked pending vortex path.
+  HELD
+  /// 9-root finality satisfied; payout authorized.
+  RELEASED
+  VOIDED
+}
+
+/// B2B escrow: funds held until 9-root (SETTLE) verification on the anchored hash.
+model EscrowVault {
+  id           String            @id @default(cuid())
+  buyerId      String
+  sellerId     String
+  amount       Decimal           @db.Decimal(20, 8)
+  currency     AegisCurrency
+  /// Hash anchor for `vortexValidator` stage checks (typically matches linked tx `txHash`).
+  txHashAnchor String            @unique
+  status       EscrowVaultStatus @default(HELD)
+  /// When SETTLE gate (root 9) was satisfied.
+  releasedAt   DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  aegisTransactionId String?           @unique
+  transaction        AegisTransaction? @relation(fields: [aegisTransactionId], references: [id], onDelete: SetNull)
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+}
