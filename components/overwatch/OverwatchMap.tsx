@@ -244,9 +244,9 @@ export function OverwatchMap({
   return (
     <div
       ref={shellRef}
-      className="overwatch-map-shell relative h-full w-full min-h-0 overflow-hidden rounded-lg border border-zinc-800 bg-black"
+      className="overwatch-map-shell relative flex min-h-[60vh] w-full flex-1 flex-col overflow-hidden rounded-lg border border-zinc-800 bg-black shadow-2xl lg:min-h-[70vh]"
     >
-      <div className="relative z-[1] h-full w-full min-h-0">
+      <div className="relative z-[1] flex min-h-0 w-full flex-1 flex-col">
         <Map
           key={styleUrl}
           ref={mapRef}
@@ -266,7 +266,7 @@ export function OverwatchMap({
           onMoveEnd={intelActive ? scheduleHarvest : undefined}
           onError={handleMapError}
         >
-          <NavigationControl showCompass={false} position="top-left" />
+          <NavigationControl showCompass={false} position="top-right" />
           {intelActive ? null : <AuditHeatmapLayer audits={pilotAudits} />}
           {intelActive
             ? leads.map((lead) => {
