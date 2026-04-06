@@ -8,7 +8,11 @@ import { consumeStrategistRateSlot } from "@/app/actions/overwatch";
 import { getPrisma } from "@/lib/db";
 import { leadCityLabel } from "@/lib/overwatch/leadMapDisplay";
 import type { SovereignLeadHarvest } from "@/lib/services/OverpassService";
+import type { DigitalFragilityReport } from "@/lib/sovereign/briefingSnapshot";
+import { parseStoredBriefing } from "@/lib/sovereign/briefingSnapshot";
 import { sanitizeOsmRecord } from "@/lib/sanitizeOsm";
+
+export type { DigitalFragilityReport } from "@/lib/sovereign/briefingSnapshot";
 
 const BriefingJsonSchema = z.object({
   root3_problem: z.string(),
@@ -19,32 +23,9 @@ const BriefingJsonSchema = z.object({
   outreach_copy: z.string(),
 });
 
-export type DigitalFragilityReport = {
-  root3Problem: string;
-  root6Logic: string;
-  root9Source: string;
-  seoTitle: string;
-  seoDescription: string;
-  outreachCopy: string;
-};
-
 export type GenerateDigitalFragilityReportResult =
   | { ok: true; report: DigitalFragilityReport }
   | { ok: false; error: string };
-
-const BriefingSnapshotSchema = z.object({
-  root3Problem: z.string(),
-  root6Logic: z.string(),
-  root9Source: z.string(),
-  seoTitle: z.string(),
-  seoDescription: z.string(),
-  outreachCopy: z.string(),
-});
-
-export function parseStoredBriefing(raw: unknown): DigitalFragilityReport | null {
-  const parsed = BriefingSnapshotSchema.safeParse(raw);
-  return parsed.success ? parsed.data : null;
-}
 
 /** Persist briefing for hosted `/vault/landing/[leadId]` (no Groq on each page view). */
 export async function persistSovereignBriefingSnapshot(

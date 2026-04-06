@@ -6,8 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import {
   generateDigitalFragilityReport,
   persistSovereignBriefingSnapshot,
-  type DigitalFragilityReport,
 } from "@/app/actions/sovereignMetadata";
+import type { DigitalFragilityReport } from "@/lib/sovereign/briefingSnapshot";
 import { messageFromUnknown } from "@/lib/messageFromUnknown";
 
 type MetadataPanelProps = {

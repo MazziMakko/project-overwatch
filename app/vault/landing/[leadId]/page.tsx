@@ -2,10 +2,8 @@ import { auth } from "@clerk/nextjs/server";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  getSovereignBriefingForLead,
-  parseStoredBriefing,
-} from "@/app/actions/sovereignMetadata";
+import { getSovereignBriefingForLead } from "@/app/actions/sovereignMetadata";
+import { parseStoredBriefing } from "@/lib/sovereign/briefingSnapshot";
 import { getPrisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
