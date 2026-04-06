@@ -2,20 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Activity,
+  Building2,
+  Crosshair,
   MapPin,
   Radio,
   RefreshCw,
-  ShieldAlert,
   Target,
   XSquare,
 } from "lucide-react";
 import type { PilotAuditDTO } from "@/app/actions/pilotAudits";
 import { harvestLeads } from "@/app/actions/overwatch";
-import {
-  leadCityLabel,
-  leadMapCategory,
-  formatCoordinates,
-} from "@/lib/overwatch/leadMapDisplay";
+import { leadCityLabel, formatCoordinates } from "@/lib/overwatch/leadMapDisplay";
 import {
   clampBoundsToHarvestArea,
   getMaxHarvestBboxAreaSqDeg,
@@ -72,17 +70,6 @@ function harvestBoundsFromCenterZoom(
     east: lng + half,
   };
   return clampBoundsToHarvestArea(raw, getMaxHarvestBboxAreaSqDeg());
-}
-
-function categoryBadgeClass(lead: SovereignLeadHarvest): string {
-  const c = leadMapCategory(lead);
-  const by: Record<typeof c, string> = {
-    shop: "border-amber-500/40 text-amber-400/90",
-    amenity: "border-sky-500/40 text-sky-400/90",
-    office: "border-violet-500/40 text-violet-400/90",
-    other: "border-lime-500/40 text-lime-400/90",
-  };
-  return by[c];
 }
 
 export function OverwatchMap({
@@ -165,113 +152,132 @@ export function OverwatchMap({
   const fragilityLabel = (lead: SovereignLeadHarvest) => {
     const v = leadVulnerabilityById[lead.id];
     if (typeof v === "number" && v >= 1 && v <= 5) return `${v}/5`;
-    return "—";
+    return null;
   };
 
   return (
     <div className="overwatch-map-shell relative flex min-h-[60vh] w-full flex-1 flex-col overflow-hidden rounded-lg border border-zinc-800 bg-black font-mono shadow-2xl lg:min-h-[70vh]">
-      <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-950 px-4 py-3">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-lime-500" />
+      {/* HEADER BAR */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950/80 px-4 py-3 backdrop-blur-md sm:px-5">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-lime-500 shadow-[0_0_8px_#84cc16]" />
           <span className="truncate text-xs font-bold uppercase tracking-widest text-lime-500">
-            {"// Tactical Intel Feed"}
+            Ghost-Ops // Active Stream
           </span>
         </div>
-        <div className="flex shrink-0 items-center gap-3 text-[10px] text-zinc-500">
+        <div className="flex flex-wrap items-center justify-end gap-3 sm:gap-4">
           {intelActive ? (
-            <>
-              <span className="hidden sm:inline" title="Scan centroid">
-                {formatCoordinates(scan.lat, scan.lng)}
-              </span>
-              <span>
-                Z{scan.zoom.toFixed(1)}
-              </span>
-            </>
+            <span
+              className="hidden font-mono text-[10px] text-zinc-500 md:inline"
+              title="Scan centroid"
+            >
+              {formatCoordinates(scan.lat, scan.lng)} · Z{scan.zoom.toFixed(1)}
+            </span>
           ) : (
-            <span className="flex items-center gap-1 text-violet-400/90">
-              <Radio className="h-3 w-3" />
+            <span className="flex items-center gap-1 text-[10px] text-violet-400/90">
+              <Radio className="h-3 w-3 shrink-0" aria-hidden />
               Pilot uplink
             </span>
           )}
-        </div>
-        <div className="ml-2 flex items-center gap-3 text-[10px]">
-          <span className="text-zinc-500">
+          <span className="text-xs text-zinc-500">
             {intelActive ? "TARGETS" : "PINGS"}:{" "}
-            <span className="text-white">
+            <span className="font-bold text-white">
               {intelActive ? leads.length : pilotAudits.length}
             </span>
           </span>
           {intelActive ? (
-            <button
-              type="button"
-              onClick={() => void runHarvestRef.current()}
-              className="flex items-center gap-1 rounded border border-zinc-700 px-2 py-1 text-zinc-400 transition-colors hover:border-lime-500/50 hover:text-lime-300"
-              title="Re-scan current sector"
-            >
-              <RefreshCw className="h-3 w-3" />
-              <span className="hidden sm:inline">SCAN</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => void runHarvestRef.current()}
+                className="flex items-center gap-1.5 rounded border border-zinc-700/80 px-2 py-1 text-xs text-zinc-400 transition-colors hover:border-lime-500/50 hover:text-lime-300"
+                title="Re-scan current sector"
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                <span className="hidden sm:inline">SCAN</span>
+              </button>
+              {leads.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={wipeFeed}
+                  className="flex items-center gap-1.5 text-xs text-red-500/80 transition-colors hover:text-red-400"
+                >
+                  <XSquare className="h-4 w-4" aria-hidden />
+                  [ WIPE ]
+                </button>
+              ) : null}
+            </>
           ) : null}
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto bg-black p-4 sm:p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-black p-4 md:p-6">
         {intelActive ? (
           !leads.length ? (
-            <div className="flex h-full min-h-[200px] flex-col items-center justify-center text-zinc-600">
-              <Target className="mb-4 h-12 w-12 opacity-20" aria-hidden />
-              <p className="animate-pulse text-sm">AWAITING DIRECTIVE…</p>
-              <p className="mt-2 text-xs">OSM harvest idle — adjust search or rescan.</p>
+            <div className="flex h-full min-h-[220px] flex-col items-center justify-center text-zinc-600">
+              <Target className="mb-4 h-16 w-16 opacity-20" aria-hidden />
+              <p className="animate-pulse text-sm tracking-widest">
+                AWAITING DIRECTIVE
+              </p>
+              <p className="mt-2 text-xs text-zinc-500">
+                ENTER TARGET PARAMETERS TO COMMENCE SCAN
+              </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {leads.map((lead) => {
-                const city = leadCityLabel(lead) ?? "Location unknown";
+                const city = leadCityLabel(lead) ?? "Location Unknown";
                 const selected = selectedId === lead.id;
+                const frag = fragilityLabel(lead);
                 return (
-                  <div
+                  <button
                     key={lead.id}
-                    className={`group relative flex flex-col justify-between rounded border p-3 transition-all sm:p-4 ${
+                    type="button"
+                    onClick={() => onSelect(lead)}
+                    className={`group relative flex w-full cursor-pointer flex-col justify-between overflow-hidden rounded-md border p-5 text-left transition-all hover:-translate-y-1 hover:border-lime-500/50 hover:bg-zinc-900 hover:shadow-[0_4px_20px_-4px_rgba(132,204,22,0.15)] focus:outline-none focus-visible:ring-2 focus-visible:ring-lime-500/60 ${
                       selected
-                        ? "border-lime-500 bg-lime-500/10"
-                        : "border-zinc-800 bg-zinc-900/50 hover:border-lime-500/60 hover:bg-zinc-900"
+                        ? "border-lime-500 bg-lime-500/10 shadow-[0_4px_24px_-4px_rgba(132,204,22,0.2)]"
+                        : "border-zinc-800 bg-zinc-900/40"
                     }`}
                   >
                     <div>
-                      <h3 className="mb-1 truncate text-sm font-bold text-white group-hover:text-lime-400">
+                      <div className="mb-3 flex items-start justify-between gap-2">
+                        <div
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded border border-zinc-800 bg-zinc-950 transition-colors group-hover:border-lime-500/30 ${
+                            selected ? "border-lime-500/40" : ""
+                          }`}
+                        >
+                          <Building2 className="h-4 w-4 text-zinc-400 transition-colors group-hover:text-lime-400" />
+                        </div>
+                        <div className="flex min-w-0 items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-950 px-2 py-1">
+                          <Activity className="h-3 w-3 shrink-0 text-lime-500" aria-hidden />
+                          <span className="text-[10px] font-bold text-zinc-300">
+                            {frag ?? "N/A"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <h3 className="mb-1 truncate text-base font-bold text-zinc-100 transition-colors group-hover:text-lime-400">
                         {lead.name || "UNIDENTIFIED ENTITY"}
                       </h3>
-                      <p className="mb-1 truncate text-[10px] uppercase tracking-wide text-zinc-500">
-                        {lead.type}
-                      </p>
-                      <div className="flex items-center gap-2 text-xs text-zinc-400">
+                      <div className="flex items-center gap-1.5 text-xs text-zinc-500">
                         <MapPin className="h-3 w-3 shrink-0" aria-hidden />
                         <span className="truncate">{city}</span>
                       </div>
-                      <p className="mt-1 font-mono text-[10px] text-zinc-600">
+                      <p className="mt-2 font-mono text-[10px] text-zinc-600">
                         {formatCoordinates(lead.lat, lead.lng)}
                       </p>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-800 pt-3">
-                      <div className="flex items-center gap-2">
-                        <ShieldAlert className="h-3 w-3 text-zinc-500" aria-hidden />
-                        <span className="text-[10px] text-zinc-500">FRAGILITY</span>
-                        <span
-                          className={`rounded border px-1.5 py-0.5 text-[10px] font-bold text-white ${categoryBadgeClass(lead)}`}
-                        >
-                          {fragilityLabel(lead)}
-                        </span>
+                    <div className="mt-5 flex items-center justify-between border-t border-zinc-800/80 pt-3">
+                      <div className="min-w-0 truncate text-[10px] uppercase tracking-wider text-zinc-500">
+                        {lead.type || "General"}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => onSelect(lead)}
-                        className="text-[10px] text-lime-600 transition-colors hover:text-lime-400"
-                      >
-                        [ ANALYZE ]
-                      </button>
+                      <div className="flex shrink-0 items-center gap-1 text-xs font-bold text-lime-600 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                        ANALYZE <Crosshair className="h-3 w-3" aria-hidden />
+                      </div>
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -311,19 +317,6 @@ export function OverwatchMap({
           </div>
         )}
       </div>
-
-      {intelActive && leads.length > 0 ? (
-        <div className="flex justify-end border-t border-zinc-800 bg-zinc-950 p-2">
-          <button
-            type="button"
-            onClick={wipeFeed}
-            className="flex items-center gap-2 px-4 py-2 text-xs text-red-500/80 transition-colors hover:text-red-400"
-          >
-            <XSquare className="h-4 w-4" aria-hidden />
-            [ WIPE FEED ]
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }
