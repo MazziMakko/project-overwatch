@@ -34,7 +34,7 @@ const OverwatchMap = dynamic(
 function MapLoading() {
   return (
     <div className="flex h-full w-full items-center justify-center bg-black text-sm text-slate-500">
-      Initializing map…
+      Initializing tactical feed…
     </div>
   );
 }
@@ -62,7 +62,6 @@ export function OverwatchCommand({
 }: OverwatchCommandProps) {
   const router = useRouter();
   const { isSignedIn } = useUser();
-  const mapToken = process.env.NEXT_PUBLIC_MAPLIBRE_TOKEN ?? null;
   const [hudMode, setHudMode] = useState<HudMode>("intel");
   const [pilotAudits, setPilotAudits] = useState<PilotAuditDTO[]>([]);
   const [leads, setLeads] = useState<SovereignLeadHarvest[]>([]);
@@ -355,7 +354,7 @@ export function OverwatchCommand({
       <div className="relative flex min-h-0 w-full flex-1 flex-col">
         <div className="pointer-events-none absolute left-3 top-3 z-10 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <div className="rounded border border-white/10 bg-black/50 px-3 py-1.5 font-mono text-[10px] text-slate-400 backdrop-blur-md">
-            MAP // FULL WIDTH
+            GHOST-OPS // TERMINAL
           </div>
           <div className="pointer-events-auto flex w-fit rounded border border-white/10 bg-black/70 font-mono text-[9px] uppercase tracking-wide backdrop-blur-md">
             <button
@@ -383,7 +382,6 @@ export function OverwatchCommand({
           </div>
         </div>
         <OverwatchMap
-          maplibreToken={mapToken}
           hudMode={hudMode}
           pilotAudits={pilotAudits}
           onLeads={stableOnLeads}

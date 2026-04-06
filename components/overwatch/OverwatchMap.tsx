@@ -1,40 +1,34 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Map, {
-  Marker,
-  NavigationControl,
-  Popup,
-  type MapRef,
-} from "react-map-gl/maplibre";
-import maplibregl from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
+import {
+  MapPin,
+  Radio,
+  RefreshCw,
+  ShieldAlert,
+  Target,
+  XSquare,
+} from "lucide-react";
 import type { PilotAuditDTO } from "@/app/actions/pilotAudits";
 import { harvestLeads } from "@/app/actions/overwatch";
 import {
+  leadCityLabel,
   leadMapCategory,
-  type LeadMapCategory,
+  formatCoordinates,
 } from "@/lib/overwatch/leadMapDisplay";
-import { AuditHeatmapLayer } from "./AuditHeatmapLayer";
-import { messageFromUnknown } from "@/lib/messageFromUnknown";
 import {
   clampBoundsToHarvestArea,
   getMaxHarvestBboxAreaSqDeg,
+  type MapBounds,
 } from "@/lib/overwatch/harvestBounds";
+import { messageFromUnknown } from "@/lib/messageFromUnknown";
 import type { SovereignLeadHarvest } from "@/lib/services/OverpassService";
-import { LeadMapPopup } from "./LeadMapPopup";
-import { MapBusinessLegend } from "./MapBusinessLegend";
 
-const DEFAULT_STYLE =
-  "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
-
-/** Default tactical viewport: Carneys Point, NJ — flat 2D (no pitch). */
+/** Default tactical viewport: Carneys Point, NJ — harvest bbox derived from center + zoom. */
 const DEFAULT_INTEL_VIEW = {
   longitude: -75.4682,
   latitude: 39.7256,
   zoom: 13,
-  pitch: 0,
-  bearing: 0,
 } as const;
 
 export type MapFocusRequest = {
@@ -55,7 +49,6 @@ type OverwatchMapProps = {
   onLeads: (leads: SovereignLeadHarvest[]) => void;
   onSelect: (lead: SovereignLeadHarvest | null) => void;
   selectedId: string | null;
-  /** Known vulnerability scores (1–5) by lead id — drives marker emphasis only (2D). */
   leadVulnerabilityById?: Record<string, number>;
   onBoundsBusy: (busy: boolean) => void;
   onHarvestError: (message: string | null) => void;
@@ -63,29 +56,37 @@ type OverwatchMapProps = {
   onFocusApplied?: () => void;
 };
 
-function markerDotClass(
-  category: LeadMapCategory,
-  selected: boolean,
-  hovered: boolean,
-  vulnerabilityScore: number,
-): string {
-  const base =
-    "rounded-full border shadow-[0_0_10px_rgba(0,0,0,0.5)] transition-transform duration-150 focus:outline focus:outline-2 focus:outline-lime-300";
-  const size = selected ? "h-3.5 w-3.5" : hovered ? "h-3 w-3" : "h-2.5 w-2.5";
-  const ring = selected ? "ring-2 ring-lime-200 ring-offset-1 ring-offset-black" : "";
-  const scale = hovered && !selected ? "scale-125" : "";
-  const pulse = vulnerabilityScore >= 5 ? "animate-pulse" : "";
-  const byCat: Record<LeadMapCategory, string> = {
-    shop: "border-amber-400/90 bg-amber-500/95 shadow-amber-400/50",
-    amenity: "border-sky-400/90 bg-sky-500/95 shadow-sky-400/45",
-    office: "border-violet-400/90 bg-violet-500/95 shadow-violet-400/45",
-    other: "border-lime-400/85 bg-lime-500/90 shadow-lime-400/55",
+function harvestBoundsFromCenterZoom(
+  lat: number,
+  lng: number,
+  zoom: number,
+): MapBounds {
+  const z = Math.max(0, Math.min(22, zoom));
+  const baseSpan = 0.085;
+  const span = baseSpan * Math.pow(2, 13 - z);
+  const half = Math.max(span / 2, 0.0015);
+  const raw: MapBounds = {
+    south: lat - half,
+    north: lat + half,
+    west: lng - half,
+    east: lng + half,
   };
-  return `${base} ${size} ${byCat[category]} ${ring} ${scale} ${pulse}`.trim();
+  return clampBoundsToHarvestArea(raw, getMaxHarvestBboxAreaSqDeg());
+}
+
+function categoryBadgeClass(lead: SovereignLeadHarvest): string {
+  const c = leadMapCategory(lead);
+  const by: Record<typeof c, string> = {
+    shop: "border-amber-500/40 text-amber-400/90",
+    amenity: "border-sky-500/40 text-sky-400/90",
+    office: "border-violet-500/40 text-violet-400/90",
+    other: "border-lime-500/40 text-lime-400/90",
+  };
+  return by[c];
 }
 
 export function OverwatchMap({
-  maplibreToken,
+  maplibreToken: _maplibreToken,
   hudMode,
   pilotAudits,
   onLeads,
@@ -97,56 +98,29 @@ export function OverwatchMap({
   focusRequest,
   onFocusApplied,
 }: OverwatchMapProps) {
-  const mapRef = useRef<MapRef | null>(null);
-  const shellRef = useRef<HTMLDivElement | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hoverClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [ready, setReady] = useState(false);
   const [leads, setLeads] = useState<SovereignLeadHarvest[]>([]);
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const intelActive = hudMode === "intel";
+  const [scan, setScan] = useState<{
+    lat: number;
+    lng: number;
+    zoom: number;
+  }>({
+    lat: DEFAULT_INTEL_VIEW.latitude,
+    lng: DEFAULT_INTEL_VIEW.longitude,
+    zoom: DEFAULT_INTEL_VIEW.zoom,
+  });
 
   const onLeadsRef = useRef(onLeads);
   const onBoundsBusyRef = useRef(onBoundsBusy);
   const onHarvestErrorRef = useRef(onHarvestError);
-  const onSelectRef = useRef(onSelect);
   onLeadsRef.current = onLeads;
   onBoundsBusyRef.current = onBoundsBusy;
   onHarvestErrorRef.current = onHarvestError;
-  onSelectRef.current = onSelect;
 
-  const styleUrl = maplibreToken
-    ? `https://api.maptiler.com/maps/streets-v2-dark/style.json?key=${encodeURIComponent(maplibreToken)}`
-    : DEFAULT_STYLE;
-
-  const cancelHoverClear = useCallback(() => {
-    if (hoverClearRef.current) {
-      clearTimeout(hoverClearRef.current);
-      hoverClearRef.current = null;
-    }
-  }, []);
-
-  const scheduleHoverClear = useCallback(() => {
-    cancelHoverClear();
-    hoverClearRef.current = setTimeout(() => {
-      hoverClearRef.current = null;
-      setHoveredId(null);
-    }, 160);
-  }, [cancelHoverClear]);
+  const intelActive = hudMode === "intel";
 
   const runHarvest = useCallback(async () => {
     if (!intelActive) return;
-    const map = mapRef.current?.getMap();
-    if (!map?.loaded()) return;
-    const b = map.getBounds();
-    const raw = {
-      south: b.getSouth(),
-      west: b.getWest(),
-      north: b.getNorth(),
-      east: b.getEast(),
-    };
-    const maxArea = getMaxHarvestBboxAreaSqDeg();
-    const bounds = clampBoundsToHarvestArea(raw, maxArea);
+    const bounds = harvestBoundsFromCenterZoom(scan.lat, scan.lng, scan.zoom);
     onBoundsBusyRef.current(true);
     onHarvestErrorRef.current(null);
     try {
@@ -158,183 +132,198 @@ export function OverwatchMap({
     } finally {
       onBoundsBusyRef.current(false);
     }
-  }, [intelActive]);
+  }, [intelActive, scan.lat, scan.lng, scan.zoom]);
 
   const runHarvestRef = useRef(runHarvest);
   runHarvestRef.current = runHarvest;
 
   useEffect(() => {
-    setReady(false);
-    setLeads([]);
-    setHoveredId(null);
-    onHarvestErrorRef.current(null);
-  }, [styleUrl]);
-
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      cancelHoverClear();
-    };
-  }, [cancelHoverClear]);
-
-  useEffect(() => {
-    const el = shellRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => {
-      mapRef.current?.getMap()?.resize();
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  useEffect(() => {
-    let frame = 0;
-    let id = 0;
-    const tick = () => {
-      mapRef.current?.getMap()?.resize();
-      frame++;
-      if (frame < 6) id = requestAnimationFrame(tick);
-    };
-    id = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(id);
-  }, [hudMode]);
-
-  const scheduleHarvest = useCallback(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      debounceRef.current = null;
-      void runHarvestRef.current();
-    }, 800);
-  }, []);
-
-  const handleMapLoad = useCallback(() => {
-    setReady(true);
-    void runHarvestRef.current();
-  }, []);
-
-  const handleMapError = useCallback((e: { error?: unknown }) => {
-    console.warn("[OverwatchMap]", messageFromUnknown(e.error));
-  }, []);
-
-  useEffect(() => {
-    const map = mapRef.current?.getMap();
-    if (!map || !ready || !focusRequest) return;
-    if (!map.loaded()) return;
-    map.flyTo({
-      center: [focusRequest.lng, focusRequest.lat],
-      zoom: focusRequest.zoom ?? 17.5,
-      pitch: 0,
-      bearing: focusRequest.bearing ?? 0,
-      essential: true,
-      duration: focusRequest.duration ?? 1800,
+    if (!focusRequest) return;
+    setScan({
+      lat: focusRequest.lat,
+      lng: focusRequest.lng,
+      zoom: focusRequest.zoom ?? 14.5,
     });
     onFocusApplied?.();
-  }, [ready, focusRequest, onFocusApplied]);
-
-  const hoveredLead = hoveredId
-    ? leads.find((l) => l.id === hoveredId) ?? null
-    : null;
+  }, [focusRequest, onFocusApplied]);
 
   useEffect(() => {
-    if (ready && intelActive) {
-      void runHarvestRef.current();
+    if (!intelActive) {
+      setLeads([]);
+      onLeadsRef.current([]);
+      return;
     }
-  }, [ready, intelActive]);
+    void runHarvestRef.current();
+  }, [intelActive, scan.lat, scan.lng, scan.zoom]);
+
+  const wipeFeed = useCallback(() => {
+    setLeads([]);
+    onLeads([]);
+    onSelect(null);
+  }, [onLeads, onSelect]);
+
+  const fragilityLabel = (lead: SovereignLeadHarvest) => {
+    const v = leadVulnerabilityById[lead.id];
+    if (typeof v === "number" && v >= 1 && v <= 5) return `${v}/5`;
+    return "—";
+  };
 
   return (
-    <div
-      ref={shellRef}
-      className="overwatch-map-shell relative flex min-h-[60vh] w-full flex-1 flex-col overflow-hidden rounded-lg border border-zinc-800 bg-black shadow-2xl lg:min-h-[70vh]"
-    >
-      <div className="relative z-[1] flex min-h-0 w-full flex-1 flex-col">
-        <Map
-          key={styleUrl}
-          ref={mapRef}
-          mapLib={maplibregl}
-          mapStyle={styleUrl}
-          initialViewState={{
-            longitude: DEFAULT_INTEL_VIEW.longitude,
-            latitude: DEFAULT_INTEL_VIEW.latitude,
-            zoom: DEFAULT_INTEL_VIEW.zoom,
-            pitch: 0,
-            bearing: DEFAULT_INTEL_VIEW.bearing,
-          }}
-          style={{ width: "100%", height: "100%" }}
-          reuseMaps
-          trackResize
-          onLoad={handleMapLoad}
-          onMoveEnd={intelActive ? scheduleHarvest : undefined}
-          onError={handleMapError}
-        >
-          <NavigationControl showCompass={false} position="top-right" />
-          {intelActive ? null : <AuditHeatmapLayer audits={pilotAudits} />}
-          {intelActive
-            ? leads.map((lead) => {
-                const cat = leadMapCategory(lead);
-                const selected = selectedId === lead.id;
-                const hovered = hoveredId === lead.id;
-                const vuln = leadVulnerabilityById[lead.id] ?? 1;
-                return (
-                  <Marker
-                    key={lead.id}
-                    longitude={lead.lng}
-                    latitude={lead.lat}
-                    anchor="center"
-                    onClick={(e) => {
-                      e.originalEvent?.stopPropagation();
-                      onSelectRef.current(lead);
-                    }}
-                  >
-                    <button
-                      type="button"
-                      className={markerDotClass(cat, selected, hovered, vuln)}
-                      aria-label={lead.name}
-                      onMouseEnter={() => {
-                        cancelHoverClear();
-                        setHoveredId(lead.id);
-                      }}
-                      onMouseLeave={() => {
-                        scheduleHoverClear();
-                      }}
-                    />
-                  </Marker>
-                );
-              })
-            : null}
-          {intelActive && hoveredLead ? (
-            <Popup
-              longitude={hoveredLead.lng}
-              latitude={hoveredLead.lat}
-              anchor="bottom"
-              offset={12}
-              closeButton={false}
-              closeOnClick={false}
-              maxWidth="320px"
-            >
-              <div
-                onMouseEnter={cancelHoverClear}
-                onMouseLeave={scheduleHoverClear}
-              >
-                <LeadMapPopup lead={hoveredLead} />
-              </div>
-            </Popup>
-          ) : null}
-        </Map>
-      </div>
-      {intelActive ? (
-        <MapBusinessLegend />
-      ) : (
-        <div className="pointer-events-none absolute bottom-3 right-3 z-[2] max-w-[200px] rounded-lg border border-lime-500/20 bg-black/70 px-3 py-2 font-mono text-[9px] uppercase tracking-wide text-slate-400 backdrop-blur-md">
-          <p className="mb-1 text-[10px] font-semibold text-lime-300/90">
-            Temporal pulse
-          </p>
-          <p className="normal-case leading-snug tracking-normal text-slate-500">
-            Lime = fresh (≤1h). Grey = older trail. Vault{" "}
-            <code className="text-lime-600/90">businessId</code> must match
-            auditor route.
-          </p>
+    <div className="overwatch-map-shell relative flex min-h-[60vh] w-full flex-1 flex-col overflow-hidden rounded-lg border border-zinc-800 bg-black font-mono shadow-2xl lg:min-h-[70vh]">
+      <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-950 px-4 py-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-lime-500" />
+          <span className="truncate text-xs font-bold uppercase tracking-widest text-lime-500">
+            {"// Tactical Intel Feed"}
+          </span>
         </div>
-      )}
+        <div className="flex shrink-0 items-center gap-3 text-[10px] text-zinc-500">
+          {intelActive ? (
+            <>
+              <span className="hidden sm:inline" title="Scan centroid">
+                {formatCoordinates(scan.lat, scan.lng)}
+              </span>
+              <span>
+                Z{scan.zoom.toFixed(1)}
+              </span>
+            </>
+          ) : (
+            <span className="flex items-center gap-1 text-violet-400/90">
+              <Radio className="h-3 w-3" />
+              Pilot uplink
+            </span>
+          )}
+        </div>
+        <div className="ml-2 flex items-center gap-3 text-[10px]">
+          <span className="text-zinc-500">
+            {intelActive ? "TARGETS" : "PINGS"}:{" "}
+            <span className="text-white">
+              {intelActive ? leads.length : pilotAudits.length}
+            </span>
+          </span>
+          {intelActive ? (
+            <button
+              type="button"
+              onClick={() => void runHarvestRef.current()}
+              className="flex items-center gap-1 rounded border border-zinc-700 px-2 py-1 text-zinc-400 transition-colors hover:border-lime-500/50 hover:text-lime-300"
+              title="Re-scan current sector"
+            >
+              <RefreshCw className="h-3 w-3" />
+              <span className="hidden sm:inline">SCAN</span>
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto bg-black p-4 sm:p-6">
+        {intelActive ? (
+          !leads.length ? (
+            <div className="flex h-full min-h-[200px] flex-col items-center justify-center text-zinc-600">
+              <Target className="mb-4 h-12 w-12 opacity-20" aria-hidden />
+              <p className="animate-pulse text-sm">AWAITING DIRECTIVE…</p>
+              <p className="mt-2 text-xs">OSM harvest idle — adjust search or rescan.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {leads.map((lead) => {
+                const city = leadCityLabel(lead) ?? "Location unknown";
+                const selected = selectedId === lead.id;
+                return (
+                  <div
+                    key={lead.id}
+                    className={`group relative flex flex-col justify-between rounded border p-3 transition-all sm:p-4 ${
+                      selected
+                        ? "border-lime-500 bg-lime-500/10"
+                        : "border-zinc-800 bg-zinc-900/50 hover:border-lime-500/60 hover:bg-zinc-900"
+                    }`}
+                  >
+                    <div>
+                      <h3 className="mb-1 truncate text-sm font-bold text-white group-hover:text-lime-400">
+                        {lead.name || "UNIDENTIFIED ENTITY"}
+                      </h3>
+                      <p className="mb-1 truncate text-[10px] uppercase tracking-wide text-zinc-500">
+                        {lead.type}
+                      </p>
+                      <div className="flex items-center gap-2 text-xs text-zinc-400">
+                        <MapPin className="h-3 w-3 shrink-0" aria-hidden />
+                        <span className="truncate">{city}</span>
+                      </div>
+                      <p className="mt-1 font-mono text-[10px] text-zinc-600">
+                        {formatCoordinates(lead.lat, lead.lng)}
+                      </p>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-800 pt-3">
+                      <div className="flex items-center gap-2">
+                        <ShieldAlert className="h-3 w-3 text-zinc-500" aria-hidden />
+                        <span className="text-[10px] text-zinc-500">FRAGILITY</span>
+                        <span
+                          className={`rounded border px-1.5 py-0.5 text-[10px] font-bold text-white ${categoryBadgeClass(lead)}`}
+                        >
+                          {fragilityLabel(lead)}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onSelect(lead)}
+                        className="text-[10px] text-lime-600 transition-colors hover:text-lime-400"
+                      >
+                        [ ANALYZE ]
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        ) : pilotAudits.length === 0 ? (
+          <div className="flex h-full min-h-[200px] flex-col items-center justify-center text-zinc-600">
+            <Radio className="mb-4 h-12 w-12 opacity-20" aria-hidden />
+            <p className="text-sm">No pilot pings for linked vault leads.</p>
+            <p className="mt-2 max-w-md text-center text-xs text-zinc-500">
+              Temporal trail appears when AuraMesh audits sync. Match{" "}
+              <code className="text-lime-600/90">businessId</code> to auditor routes.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {pilotAudits.map((a) => (
+              <div
+                key={a.id}
+                className="flex flex-col gap-1 rounded border border-zinc-800 bg-zinc-950/80 px-3 py-2 text-[11px] text-zinc-300 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <span className="font-mono text-lime-500/90">
+                    {a.cryptoHash.slice(0, 10)}…
+                  </span>
+                  <span className="ml-2 text-zinc-500">
+                    biz {a.businessId.slice(0, 8)}…
+                  </span>
+                </div>
+                <div className="shrink-0 font-mono text-[10px] text-zinc-500">
+                  {new Date(a.capturedAt).toLocaleString()}
+                </div>
+                <div className="font-mono text-[10px] text-zinc-600">
+                  {formatCoordinates(a.latitude, a.longitude)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {intelActive && leads.length > 0 ? (
+        <div className="flex justify-end border-t border-zinc-800 bg-zinc-950 p-2">
+          <button
+            type="button"
+            onClick={wipeFeed}
+            className="flex items-center gap-2 px-4 py-2 text-xs text-red-500/80 transition-colors hover:text-red-400"
+          >
+            <XSquare className="h-4 w-4" aria-hidden />
+            [ WIPE FEED ]
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
