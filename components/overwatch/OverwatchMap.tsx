@@ -12,30 +12,20 @@ import {
   XSquare,
 } from "lucide-react";
 import type { PilotAuditDTO } from "@/app/actions/pilotAudits";
-import { harvestLeads } from "@/app/actions/overwatch";
-import { leadCityLabel, formatCoordinates } from "@/lib/overwatch/leadMapDisplay";
+import { harvestCorporateIntel } from "@/app/actions/overwatch";
 import {
-  clampBoundsToHarvestArea,
-  getMaxHarvestBboxAreaSqDeg,
-  type MapBounds,
-} from "@/lib/overwatch/harvestBounds";
+  b2bCeoName,
+  b2bEmail,
+  b2bLocationLabel,
+} from "@/lib/overwatch/corporateIntel";
 import { messageFromUnknown } from "@/lib/messageFromUnknown";
 import type { SovereignLeadHarvest } from "@/lib/services/OverpassService";
 
-/** Default tactical viewport: Carneys Point, NJ — harvest bbox derived from center + zoom. */
-const DEFAULT_INTEL_VIEW = {
-  longitude: -75.4682,
-  latitude: 39.7256,
-  zoom: 13,
-} as const;
+const DEFAULT_DIRECTIVE = "b2b software";
 
+/** Focus sync from sidebar / vault — search directive only (no geospatial fields). */
 export type MapFocusRequest = {
-  lng: number;
-  lat: number;
-  zoom?: number;
-  pitch?: number;
-  bearing?: number;
-  duration?: number;
+  query: string;
 };
 
 export type HudMode = "intel" | "pilot";
@@ -54,24 +44,6 @@ type OverwatchMapProps = {
   onFocusApplied?: () => void;
 };
 
-function harvestBoundsFromCenterZoom(
-  lat: number,
-  lng: number,
-  zoom: number,
-): MapBounds {
-  const z = Math.max(0, Math.min(22, zoom));
-  const baseSpan = 0.085;
-  const span = baseSpan * Math.pow(2, 13 - z);
-  const half = Math.max(span / 2, 0.0015);
-  const raw: MapBounds = {
-    south: lat - half,
-    north: lat + half,
-    west: lng - half,
-    east: lng + half,
-  };
-  return clampBoundsToHarvestArea(raw, getMaxHarvestBboxAreaSqDeg());
-}
-
 export function OverwatchMap({
   maplibreToken: _maplibreToken,
   hudMode,
@@ -86,15 +58,7 @@ export function OverwatchMap({
   onFocusApplied,
 }: OverwatchMapProps) {
   const [leads, setLeads] = useState<SovereignLeadHarvest[]>([]);
-  const [scan, setScan] = useState<{
-    lat: number;
-    lng: number;
-    zoom: number;
-  }>({
-    lat: DEFAULT_INTEL_VIEW.latitude,
-    lng: DEFAULT_INTEL_VIEW.longitude,
-    zoom: DEFAULT_INTEL_VIEW.zoom,
-  });
+  const [directive, setDirective] = useState(DEFAULT_DIRECTIVE);
 
   const onLeadsRef = useRef(onLeads);
   const onBoundsBusyRef = useRef(onBoundsBusy);
@@ -105,34 +69,43 @@ export function OverwatchMap({
 
   const intelActive = hudMode === "intel";
 
-  const runHarvest = useCallback(async () => {
-    if (!intelActive) return;
-    const bounds = harvestBoundsFromCenterZoom(scan.lat, scan.lng, scan.zoom);
-    onBoundsBusyRef.current(true);
-    onHarvestErrorRef.current(null);
-    try {
-      const next = await harvestLeads(bounds);
-      setLeads(next);
-      onLeadsRef.current(next);
-    } catch (e) {
-      onHarvestErrorRef.current(messageFromUnknown(e));
-    } finally {
-      onBoundsBusyRef.current(false);
-    }
-  }, [intelActive, scan.lat, scan.lng, scan.zoom]);
+  const harvestQuery = useCallback(
+    async (qRaw: string) => {
+      if (!intelActive) return;
+      const q = qRaw.trim();
+      if (!q) {
+        onHarvestErrorRef.current("Enter a search directive.");
+        return;
+      }
+      onBoundsBusyRef.current(true);
+      onHarvestErrorRef.current(null);
+      try {
+        const next = await harvestCorporateIntel({ query: q });
+        setLeads(next);
+        onLeadsRef.current(next);
+      } catch (e) {
+        onHarvestErrorRef.current(messageFromUnknown(e));
+      } finally {
+        onBoundsBusyRef.current(false);
+      }
+    },
+    [intelActive],
+  );
+
+  const runHarvest = useCallback(() => {
+    void harvestQuery(directive);
+  }, [harvestQuery, directive]);
 
   const runHarvestRef = useRef(runHarvest);
   runHarvestRef.current = runHarvest;
 
   useEffect(() => {
-    if (!focusRequest) return;
-    setScan({
-      lat: focusRequest.lat,
-      lng: focusRequest.lng,
-      zoom: focusRequest.zoom ?? 14.5,
-    });
+    if (!focusRequest?.query?.trim()) return;
+    const q = focusRequest.query.trim();
+    setDirective(q);
     onFocusApplied?.();
-  }, [focusRequest, onFocusApplied]);
+    void harvestQuery(q);
+  }, [focusRequest, onFocusApplied, harvestQuery]);
 
   useEffect(() => {
     if (!intelActive) {
@@ -140,8 +113,9 @@ export function OverwatchMap({
       onLeadsRef.current([]);
       return;
     }
-    void runHarvestRef.current();
-  }, [intelActive, scan.lat, scan.lng, scan.zoom]);
+    void harvestQuery(directive);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only remount / mode switch; directive changes use SCAN
+  }, [intelActive]);
 
   const wipeFeed = useCallback(() => {
     setLeads([]);
@@ -157,7 +131,6 @@ export function OverwatchMap({
 
   return (
     <div className="overwatch-map-shell relative flex min-h-[60vh] w-full flex-1 flex-col overflow-hidden rounded-lg border border-zinc-800 bg-black font-mono shadow-2xl lg:min-h-[70vh]">
-      {/* HEADER BAR */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950/80 px-4 py-3 backdrop-blur-md sm:px-5">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-lime-500 shadow-[0_0_8px_#84cc16]" />
@@ -165,13 +138,31 @@ export function OverwatchMap({
             Ghost-Ops // Active Stream
           </span>
         </div>
+        <div className="flex w-full min-w-0 flex-[1_1_220px] items-center gap-2 sm:w-auto sm:max-w-xl">
+          <label className="sr-only" htmlFor="overwatch-directive">
+            B2B search directive
+          </label>
+          <input
+            id="overwatch-directive"
+            type="text"
+            value={directive}
+            onChange={(e) => setDirective(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void runHarvestRef.current();
+            }}
+            className="min-w-0 flex-1 rounded border border-zinc-800 bg-black px-2 py-1.5 font-mono text-[11px] text-lime-100 placeholder:text-zinc-600 focus:border-lime-500/50 focus:outline-none focus:ring-1 focus:ring-lime-500/30"
+            placeholder="Directive (Apollo q_keywords)…"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </div>
         <div className="flex flex-wrap items-center justify-end gap-3 sm:gap-4">
           {intelActive ? (
             <span
-              className="hidden font-mono text-[10px] text-zinc-500 md:inline"
-              title="Scan centroid"
+              className="hidden max-w-[140px] truncate font-mono text-[10px] text-zinc-500 lg:inline"
+              title="Active directive"
             >
-              {formatCoordinates(scan.lat, scan.lng)} · Z{scan.zoom.toFixed(1)}
+              {directive.trim() || "—"}
             </span>
           ) : (
             <span className="flex items-center gap-1 text-[10px] text-violet-400/90">
@@ -191,7 +182,7 @@ export function OverwatchMap({
                 type="button"
                 onClick={() => void runHarvestRef.current()}
                 className="flex items-center gap-1.5 rounded border border-zinc-700/80 px-2 py-1 text-xs text-zinc-400 transition-colors hover:border-lime-500/50 hover:text-lime-300"
-                title="Re-scan current sector"
+                title="Run B2B harvest for current directive"
               >
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden />
                 <span className="hidden sm:inline">SCAN</span>
@@ -219,14 +210,16 @@ export function OverwatchMap({
               <p className="animate-pulse text-sm tracking-widest">
                 AWAITING DIRECTIVE
               </p>
-              <p className="mt-2 text-xs text-zinc-500">
-                ENTER TARGET PARAMETERS TO COMMENCE SCAN
+              <p className="mt-2 text-center text-xs text-zinc-500">
+                ENTER A B2B KEYWORD SECTOR — APOLLO PEOPLE SEARCH (SERVER-SIDE)
               </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {leads.map((lead) => {
-                const city = leadCityLabel(lead) ?? "Location Unknown";
+                const loc = b2bLocationLabel(lead) ?? "Location unknown";
+                const exec = b2bCeoName(lead);
+                const mail = b2bEmail(lead);
                 const selected = selectedId === lead.id;
                 const frag = fragilityLabel(lead);
                 return (
@@ -260,13 +253,22 @@ export function OverwatchMap({
                       <h3 className="mb-1 truncate text-base font-bold text-zinc-100 transition-colors group-hover:text-lime-400">
                         {lead.name || "UNIDENTIFIED ENTITY"}
                       </h3>
+                      {exec ? (
+                        <p className="mb-1 truncate text-xs text-zinc-400">{exec}</p>
+                      ) : null}
                       <div className="flex items-center gap-1.5 text-xs text-zinc-500">
                         <MapPin className="h-3 w-3 shrink-0" aria-hidden />
-                        <span className="truncate">{city}</span>
+                        <span className="truncate">{loc}</span>
                       </div>
-                      <p className="mt-2 font-mono text-[10px] text-zinc-600">
-                        {formatCoordinates(lead.lat, lead.lng)}
-                      </p>
+                      {mail ? (
+                        <p className="mt-2 truncate font-mono text-[10px] text-zinc-500">
+                          {mail}
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-[10px] text-zinc-600">
+                          Email gated — enrich in Apollo when available
+                        </p>
+                      )}
                     </div>
 
                     <div className="mt-5 flex items-center justify-between border-t border-zinc-800/80 pt-3">
@@ -308,9 +310,6 @@ export function OverwatchMap({
                 </div>
                 <div className="shrink-0 font-mono text-[10px] text-zinc-500">
                   {new Date(a.capturedAt).toLocaleString()}
-                </div>
-                <div className="font-mono text-[10px] text-zinc-600">
-                  {formatCoordinates(a.latitude, a.longitude)}
                 </div>
               </div>
             ))}

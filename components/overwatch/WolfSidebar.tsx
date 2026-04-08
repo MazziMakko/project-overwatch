@@ -14,10 +14,7 @@ import {
   Shield,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import {
-  centroidOfLeads,
-  leadCityLabel,
-} from "@/lib/overwatch/leadMapDisplay";
+import { terminalLeadGroupLabel } from "@/lib/overwatch/corporateIntel";
 import type {
   AnalyzeVulnerabilityResult,
   StrategistMessage,
@@ -39,7 +36,7 @@ type WolfSidebarProps = {
   leads: SovereignLeadHarvest[];
   hudMode: HudMode;
   onSelectLead: (lead: SovereignLeadHarvest) => void;
-  onCityFocus: (lat: number, lng: number) => void;
+  onRegionFocus: (query: string) => void;
   selected: SovereignLeadHarvest | null;
   analysis: AnalyzeVulnerabilityResult | null;
   analyzing: boolean;
@@ -62,7 +59,7 @@ export function WolfSidebar({
   leads,
   hudMode,
   onSelectLead,
-  onCityFocus,
+  onRegionFocus,
   selected,
   analysis,
   analyzing,
@@ -86,7 +83,7 @@ export function WolfSidebar({
   const leadsByCity = useMemo(() => {
     const m = new Map<string, SovereignLeadHarvest[]>();
     for (const lead of leads) {
-      const city = leadCityLabel(lead) ?? "Unspecified area";
+      const city = terminalLeadGroupLabel(lead);
       const list = m.get(city);
       if (list) list.push(lead);
       else m.set(city, [lead]);
@@ -110,7 +107,7 @@ export function WolfSidebar({
               {hudMode === "pilot"
                 ? "Pilot uplink · vault-scoped audits"
                 : harvesting
-                  ? "Harvesting OSM…"
+                  ? "Harvesting B2B…"
                   : `${leads.length} leads in view`}
             </p>
           </div>
@@ -155,7 +152,7 @@ export function WolfSidebar({
               Pilot mode
             </span>
             <br />
-            B2B harvest is paused. Map shows AuraMesh audits for vault sites. Use
+            B2B harvest is paused. Terminal shows AuraMesh audits for vault sites. Use
             auditor at{" "}
             <code className="text-lime-300/90">/auditor/{"{vaultLeadId}"}</code>{" "}
             so <code className="text-lime-300/90">businessId</code> matches.
@@ -171,17 +168,16 @@ export function WolfSidebar({
           <section className="mb-6">
             <h2 className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
               <MapPin className="size-3.5" aria-hidden />
-              Areas & targets
+              Regions & targets
             </h2>
             <p className="mb-3 text-[11px] leading-relaxed text-slate-500">
-              Open an <span className="text-slate-400">area</span> for a pitched
-              street-level view of every business in frame, or a{" "}
+              Open a <span className="text-slate-400">region</span> to push that
+              label as the terminal B2B directive, or select a{" "}
               <span className="text-slate-400">single target</span> for full
               analysis.
             </p>
             <div className="space-y-2 pr-1">
               {leadsByCity.map(([city, cityLeads]) => {
-                const c = centroidOfLeads(cityLeads);
                 return (
                   <div
                     key={city}
@@ -191,13 +187,12 @@ export function WolfSidebar({
                       type="button"
                       className="flex w-full items-center justify-between gap-2 border-b border-white/5 px-2.5 py-2 text-left hover:bg-white/[0.04]"
                       onClick={() => {
-                        if (c) onCityFocus(c.lat, c.lng);
+                        onRegionFocus(city);
                       }}
-                      disabled={!c}
                     >
                       <span className="font-medium text-slate-200">{city}</span>
                       <span className="shrink-0 font-mono text-[10px] text-slate-500">
-                        {cityLeads.length} · fly to
+                        {cityLeads.length} · directive
                       </span>
                     </button>
                     <ul className="divide-y divide-white/5">
@@ -233,19 +228,15 @@ export function WolfSidebar({
             Active target
           </h2>
           {!selected ? (
-            <p className="text-sm text-slate-500">Select a map marker.</p>
+            <p className="text-sm text-slate-500">Select a terminal card.</p>
           ) : (
             <div className="rounded-lg border border-white/10 bg-black/30 p-3">
               <p className="font-medium text-white">{selected.name}</p>
               <p className="font-mono text-xs text-slate-400">{selected.type}</p>
               <dl className="mt-2 space-y-1 font-mono text-[11px] text-slate-300">
                 <div className="flex justify-between gap-2">
-                  <dt className="text-slate-500">lat</dt>
-                  <dd className="select-all">{selected.lat.toFixed(6)}</dd>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <dt className="text-slate-500">lng</dt>
-                  <dd className="select-all">{selected.lng.toFixed(6)}</dd>
+                  <dt className="text-slate-500">sector</dt>
+                  <dd className="truncate text-right">{selected.type}</dd>
                 </div>
                 <div className="flex justify-between gap-2">
                   <dt className="text-slate-500">web</dt>

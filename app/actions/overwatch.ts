@@ -9,9 +9,10 @@ import {
   parseStrategistThread,
   type StrategistMessage,
 } from "@/lib/strategistThread";
-import { fetchSovereignLeads, type MapBounds } from "@/lib/services/OverpassService";
 import type { SovereignLeadHarvest } from "@/lib/services/OverpassService";
+import { fetchCorporateLeadsFromApollo } from "@/lib/services/ApolloIntelService";
 import { sanitizeOsmRecord } from "@/lib/sanitizeOsm";
+import { z } from "zod";
 
 export type { StrategistMessage } from "@/lib/strategistThread";
 
@@ -115,12 +116,21 @@ function hardcodedBaseScore(lead: LeadAnalysisPayload): number {
   return 2;
 }
 
-export async function harvestLeads(bounds: MapBounds) {
-  const leads = await fetchSovereignLeads(bounds);
-  return leads.map((l) => {
-    const osmMetadata = sanitizeOsmRecord(l.osmMetadata as Record<string, unknown>);
-    return { ...l, osmMetadata };
-  });
+const harvestCorporateIntelInputSchema = z.object({
+  query: z.string().min(1).max(200),
+});
+
+/**
+ * B2B harvest via Apollo People API Search (server-only, `APOLLO_API_KEY`).
+ * No geospatial bounds — `query` maps to Apollo `q_keywords`.
+ */
+export async function harvestCorporateIntel(raw: unknown) {
+  const { query } = harvestCorporateIntelInputSchema.parse(raw);
+  const { userId } = await auth();
+  if (!userId) {
+    throw new Error("Sign in to run B2B harvest.");
+  }
+  return fetchCorporateLeadsFromApollo(query);
 }
 
 export async function analyzeVulnerability(
@@ -148,7 +158,7 @@ export async function analyzeVulnerability(
 Respond with ONLY valid JSON (no markdown) matching exactly:
 {"vulnerabilityScore": number 1-5, "pitch": string, "rationale": string}
 
-Scoring: refine 1–5 from Digital Fragility — missing website, hours, phone, and weak findability in OSM metadata.
+Scoring: refine 1–5 from Digital Fragility — missing website, hours, phone, and weak discoverability from the lead metadata (not map data).
 
 Pitch ("pitch" field): exactly three sentences forming a cold-email style hook that:
 - Names their category and city/area when known
@@ -376,7 +386,7 @@ Lead context (JSON): ${JSON.stringify({
     missingWebsite,
     missingHours,
     missingPhone,
-    osmMetadata: safeMeta,
+    leadMetadata: safeMeta,
   })}`;
 
   let reply: string;

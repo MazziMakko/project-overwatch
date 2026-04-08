@@ -22,6 +22,7 @@ import {
 import { messageFromUnknown } from "@/lib/messageFromUnknown";
 import { firstAssistantPitch } from "@/lib/strategistThread";
 import { leadCityLabel } from "@/lib/overwatch/leadMapDisplay";
+import { b2bLocationLabel } from "@/lib/overwatch/corporateIntel";
 import type { SovereignLeadHarvest } from "@/lib/services/OverpassService";
 import { WolfSidebar, type IntelFeedItem } from "./WolfSidebar";
 import type { HudMode, MapFocusRequest } from "./OverwatchMap";
@@ -43,7 +44,7 @@ function leadToPayload(lead: SovereignLeadHarvest): LeadAnalysisPayload {
   return {
     name: lead.name,
     type: lead.type,
-    city: leadCityLabel(lead),
+    city: b2bLocationLabel(lead) ?? leadCityLabel(lead),
     website: lead.website,
     phone: lead.phone,
     opening_hours: lead.opening_hours,
@@ -199,11 +200,7 @@ export function OverwatchCommand({
         vaultLeadIdRef.current = pack.vaultId;
         setSelected(pack.lead);
         setMapFocus({
-          lng: pack.lead.lng,
-          lat: pack.lead.lat,
-          zoom: 17.5,
-          pitch: 50,
-          bearing: -10,
+          query: pack.lead.name,
         });
         if (pack.strategistThread.length > 0) {
           setStrategistMessages(pack.strategistThread);
@@ -244,12 +241,7 @@ export function OverwatchCommand({
       setStrategistError(null);
       if (lead) {
         setMapFocus({
-          lng: lead.lng,
-          lat: lead.lat,
-          zoom: 17.75,
-          pitch: 52,
-          bearing: -12,
-          duration: 1900,
+          query: lead.name,
         });
         void runAnalysis(lead);
       }
@@ -257,7 +249,7 @@ export function OverwatchCommand({
     [runAnalysis],
   );
 
-  const handleCityFocus = useCallback((lat: number, lng: number) => {
+  const handleRegionFocus = useCallback((query: string) => {
     setSelected(null);
     setAnalysis(null);
     setStrategistMessages([]);
@@ -266,12 +258,7 @@ export function OverwatchCommand({
     vaultLeadIdRef.current = null;
     setStrategistError(null);
     setMapFocus({
-      lng,
-      lat,
-      zoom: 14.5,
-      pitch: 48,
-      bearing: -10,
-      duration: 2000,
+      query: query.trim(),
     });
   }, []);
 
@@ -284,12 +271,7 @@ export function OverwatchCommand({
     vaultLeadIdRef.current = null;
     setStrategistError(null);
     setMapFocus({
-      lng: hit.lng,
-      lat: hit.lat,
-      zoom: hit.suggestedZoom,
-      pitch: 38,
-      bearing: -8,
-      duration: 2100,
+      query: hit.displayName.trim(),
     });
   }, []);
 
@@ -398,7 +380,7 @@ export function OverwatchCommand({
         leads={leads}
         hudMode={hudMode}
         onSelectLead={handleSelect}
-        onCityFocus={handleCityFocus}
+        onRegionFocus={handleRegionFocus}
         selected={selected}
         analysis={analysis}
         analyzing={analyzing}
