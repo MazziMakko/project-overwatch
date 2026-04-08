@@ -10,9 +10,7 @@ import {
   type StrategistMessage,
 } from "@/lib/strategistThread";
 import type { SovereignLeadHarvest } from "@/lib/services/OverpassService";
-import { fetchCorporateLeadsFromApollo } from "@/lib/services/ApolloIntelService";
 import { sanitizeOsmRecord } from "@/lib/sanitizeOsm";
-import { z } from "zod";
 
 export type { StrategistMessage } from "@/lib/strategistThread";
 
@@ -114,23 +112,6 @@ function hardcodedBaseScore(lead: LeadAnalysisPayload): number {
   if (lead.opening_hours == null) return 4;
   if (lead.phone == null) return 3;
   return 2;
-}
-
-const harvestCorporateIntelInputSchema = z.object({
-  query: z.string().min(1).max(200),
-});
-
-/**
- * B2B harvest via Apollo People API Search (server-only, `APOLLO_API_KEY`).
- * No geospatial bounds — `query` maps to Apollo `q_keywords`.
- */
-export async function harvestCorporateIntel(raw: unknown) {
-  const { query } = harvestCorporateIntelInputSchema.parse(raw);
-  const { userId } = await auth();
-  if (!userId) {
-    throw new Error("Sign in to run B2B harvest.");
-  }
-  return fetchCorporateLeadsFromApollo(query);
 }
 
 export async function analyzeVulnerability(
