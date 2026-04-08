@@ -57,6 +57,9 @@ export function corporateToSovereignLead(
 
 export function b2bLocationLabel(lead: SovereignLeadHarvest): string | null {
   const m = lead.osmMetadata as Record<string, unknown>;
+  if (typeof m.cityLabel === "string" && m.cityLabel.trim()) {
+    return m.cityLabel.trim();
+  }
   if (typeof m.location === "string" && m.location.trim()) {
     return m.location.trim();
   }

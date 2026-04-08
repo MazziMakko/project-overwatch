@@ -9,6 +9,8 @@ import {
   listPilotAudits,
   type PilotAuditDTO,
 } from "@/app/actions/pilotAudits";
+import { harvestB2BData } from "@/app/actions/harvestB2B";
+import { harvestB2BLeadToSovereign } from "@/lib/overwatch/harvestB2BBridge";
 import {
   analyzeVulnerability,
   getVaultLeadForOverwatch,
@@ -65,6 +67,8 @@ export function OverwatchCommand({
   const { isSignedIn } = useUser();
   const [hudMode, setHudMode] = useState<HudMode>("intel");
   const [pilotAudits, setPilotAudits] = useState<PilotAuditDTO[]>([]);
+  const [searchQuery, setSearchQuery] = useState("b2b software");
+  const [searchLocation, setSearchLocation] = useState("New Jersey");
   const [leads, setLeads] = useState<SovereignLeadHarvest[]>([]);
   const [selected, setSelected] = useState<SovereignLeadHarvest | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeVulnerabilityResult | null>(null);
@@ -97,6 +101,36 @@ export function OverwatchCommand({
   }, [vaultLeadId]);
 
   const clearMapFocus = useCallback(() => setMapFocus(null), []);
+
+  const handleScan = useCallback(
+    async (searchQueryParam?: string, searchLocationParam?: string) => {
+      const q = (searchQueryParam ?? searchQuery).trim();
+      const loc = (searchLocationParam ?? searchLocation).trim() || "New Jersey";
+      if (!q) {
+        setHarvestError("Enter a search directive.");
+        return;
+      }
+      setHarvesting(true);
+      setHarvestError(null);
+      try {
+        const rows = await harvestB2BData(q, loc);
+        setLeads(rows.map(harvestB2BLeadToSovereign));
+      } catch (e) {
+        setHarvestError(messageFromUnknown(e));
+      } finally {
+        setHarvesting(false);
+      }
+    },
+    [searchQuery, searchLocation],
+  );
+
+  useEffect(() => {
+    if (!mapFocus?.query?.trim()) return;
+    const q = mapFocus.query.trim();
+    setSearchQuery(q);
+    clearMapFocus();
+    void handleScan(q, searchLocation);
+  }, [mapFocus, clearMapFocus, handleScan, searchLocation]);
 
   const selectedId = selected?.id ?? null;
 
@@ -326,10 +360,16 @@ export function OverwatchCommand({
     }
   }, [analysis, selected]);
 
-  const stableOnLeads = useMemo(
-    () => (next: SovereignLeadHarvest[]) => setLeads(next),
-    [],
-  );
+  const handleWipe = useCallback(() => {
+    setLeads([]);
+    setSelected(null);
+    setAnalysis(null);
+    setStrategistMessages([]);
+    strategistMessagesRef.current = [];
+    setVaultLeadId(null);
+    vaultLeadIdRef.current = null;
+    setStrategistError(null);
+  }, []);
 
   return (
     <div className="flex min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden bg-[#030303]">
@@ -366,14 +406,17 @@ export function OverwatchCommand({
         <OverwatchMap
           hudMode={hudMode}
           pilotAudits={pilotAudits}
-          onLeads={stableOnLeads}
+          leads={leads}
           onSelect={handleSelect}
           selectedId={selectedId}
           leadVulnerabilityById={leadVulnerabilityById}
-          onBoundsBusy={setHarvesting}
-          onHarvestError={setHarvestError}
-          focusRequest={mapFocus}
-          onFocusApplied={clearMapFocus}
+          harvesting={harvesting}
+          searchQuery={searchQuery}
+          searchLocation={searchLocation}
+          onSearchQueryChange={setSearchQuery}
+          onSearchLocationChange={setSearchLocation}
+          onScan={() => void handleScan()}
+          onWipe={handleWipe}
         />
       </div>
       <WolfSidebar
